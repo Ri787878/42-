@@ -10,20 +10,35 @@ def print_to_stderr(*a):
 
 
 def softmax(x, temperature=1.0):
-    # Handle greedy decoding (temperature = 0) to avoid division by zero
+    values = np.asarray(x, dtype=float)
+
+    if not np.isfinite(values).any():
+        raise ValueError(
+            "Cannot calculate softmax: no finite logits were provided."
+        )
+
     if temperature <= 1e-5:
-        probs = np.zeros_like(x)
-        probs[np.argmax(x, axis=0)] = 1.0
-        return probs
+        probabilities = np.zeros_like(values)
+        probabilities[np.nanargmax(values)] = 1.0
+        return probabilities
 
-    # 1. Scale input by temperature
-    scaled_x = x / temperature
+    finite_values = np.where(
+        np.isfinite(values),
+        values,
+        -np.inf,
+    )
 
-    # 2. Subtract max value for numerical stability
-    exp_x = np.exp(scaled_x - np.max(scaled_x, axis=0, keepdims=True))
+    maximum = np.max(finite_values)
+    shifted = finite_values - maximum
+    exponentials = np.exp(shifted / temperature)
+    total = exponentials.sum()
 
-    # 3. Normalize values
-    return exp_x / exp_x.sum(axis=0)
+    if not np.isfinite(total) or total <= 0:
+        raise ValueError(
+            "Cannot calculate softmax: invalid probability total."
+        )
+
+    return exponentials / total
 
 
 def decoding_strategy(probs: np.ndarray | None) -> int:

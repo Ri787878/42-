@@ -69,17 +69,23 @@ Return exactly one JSON object with this structure:
 }}
 
 Rules:
-- Select one available function.
-- Use the exact parameter names.
-- Copy quoted values exactly, including spaces and capitalization.
-- Infer regexes from the requested character type or operation, not from sample values.
-- Return one short, complete JSON object only. Do not output explanations or Markdown.
-- A regex must match only the target characters, not the entire source string.
-- Output each argument using its declared JSON type.
-- Numbers must be JSON numbers, not quoted strings.
-- Strings must be quoted JSON strings.
-- Booleans must be JSON true or false.
-
+- Select exactly one available function.
+- Return exactly one complete JSON object and nothing else.
+- Use the exact function and parameter names.
+- Copy the original user request exactly into the "prompt" field.
+- Copy quoted values exactly,
+  including spaces,
+  capitalization,
+  and punctuation.
+- Use the declared JSON types:
+  numbers as JSON numbers,
+  strings as JSON strings,
+  booleans as true or false.
+- For regex substitution, match only the requested characters.
+- Use [0-9]+ for all digits.
+- For specific characters such as 2 and 5, use [25].
+- Escape double quotes inside JSON strings as \\".
+- Stop immediately after the final closing brace.
 Begin the JSON response now:
 """
 
@@ -168,3 +174,54 @@ def validate_parameter_types(
             raise ValueError(
                 f"Parameter '{parameter_name}' must be a string"
             )
+
+        if expected_type == "boolean" and not isinstance(value, bool):
+            raise ValueError(
+                f"Parameter '{parameter_name}' must be a boolean"
+            )
+
+
+def normalize_substitution_regex(function_call: FunctionCall) -> None:
+    """Build and validate the regex for substitution requests."""
+    if function_call.name != "fn_substitute_string_with_regex":
+        return
+
+    prompt = function_call.prompt.casefold()
+
+    # Spaces are requested by name, not as quoted characters.
+    if "space" in prompt:
+        function_call.parameters["regex"] = " "
+
+    else:
+        # Only inspect quoted values before the source string.
+        request_part = re.split(r"\s+in\s+", prompt, maxsplit=1)[0]
+
+        quoted_values = re.findall(
+            r"""['"]([^'"]*)['"]""",
+            request_part,
+        )
+
+        characters = "".join(
+            value
+            for value in quoted_values
+            if len(value) == 1
+        )
+
+        if characters:
+            function_call.parameters["regex"] = (
+                f"[{re.escape(characters)}]"
+            )
+        elif "all digits" in prompt or "all numbers" in prompt:
+            function_call.parameters["regex"] = r"\d+"
+
+    regex = function_call.parameters.get("regex")
+
+    if not isinstance(regex, str):
+        raise ValueError("Substitution regex must be a string")
+
+    try:
+        re.compile(regex)
+    except re.error as exc:
+        raise ValueError(
+            f"Invalid substitution regex: {regex!r}"
+        ) from exc

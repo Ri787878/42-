@@ -11,7 +11,8 @@ from ..contained_decoding.function_calling import (
     FunctionCallResult,
     parse_function_call,
     validate_parameter_types,
-    normalize_parameter_types
+    normalize_parameter_types,
+    normalize_substitution_regex
 )
 from ..contained_decoding.json_validator import (
     BasicJsonFSM,
@@ -181,6 +182,7 @@ class Command(BaseModel):
         import json
 
         all_calls = []
+        vocab = load_vocab_from_model(self.llm_model)
 
         for prompt_item in self.prompts_list:
             generation_prompt = FunctionCallResult.build_generation_prompt(
@@ -198,7 +200,6 @@ class Command(BaseModel):
                 int(token_id)
                 for token_id in encoded_prompt_tensor.flatten().tolist()
             ]
-            vocab = load_vocab_from_model(self.llm_model)
             json_fsm = BasicJsonFSM(vocab)
 
             generated_ids: list[int] = []
@@ -227,6 +228,16 @@ class Command(BaseModel):
                     next_token_logits,
                     json_fsm,
                 )
+
+                finite_token_ids = np.flatnonzero(
+                    np.isfinite(next_token_logits)
+                )
+
+                if len(finite_token_ids) == 0:
+                    raise ValueError(
+                        "JSON mask removed every valid token. "
+                        f"FSM state: {json_fsm.current_state}"
+                    )
 
                 temperature = max(
                     float(
@@ -263,17 +274,15 @@ class Command(BaseModel):
                 context_ids.append(next_token_id)
                 generated_ids.append(next_token_id)
 
-                decoded_text = self.llm_model.decode(
-                    generated_ids
-                ).strip()
-
-                function_call = parse_function_call(decoded_text)
-
-                if json_fsm.is_done() and function_call is not None:
+                if json_fsm.is_done():
+                    decoded_text = self.llm_model.decode(
+                        generated_ids
+                    ).strip()
+                    function_call = parse_function_call(decoded_text)
                     break
 
                 # TODO Add VISUALIZATION HERE!!
-                print(f"DECODED: {decoded_text!r}")
+                # print(f"DECODED: {decoded_text!r}")
 
             if function_call is None:
                 print(f"RAW RESPONSE: {decoded_text!r}")
@@ -290,6 +299,7 @@ class Command(BaseModel):
                 )
 
             function_call.prompt = prompt_item.prompt
+            normalize_substitution_regex(function_call)
 
             valid_function_names = {
                 definition.name
