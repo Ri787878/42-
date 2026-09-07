@@ -1,0 +1,78 @@
+[
+  {
+    "prompt": "What is the sum of 18 and 42?",
+    "name": "fn_add_numbers",
+    "parameters": {
+      "a": 18.0,
+      "b": 42.0
+    }
+  },
+  {
+    "prompt": "Add -15.5 to 30.5",
+    "name": "fn_add_numbers",
+    "parameters": {
+      "a": -15.5,
+      "b": 30.5
+    }
+  },
+  {
+    "prompt": "Say hello to Sarah",
+    "name": "fn_greet",
+    "parameters": {
+      "name": "Sarah"
+    }
+  },
+  {
+    "prompt": "Send a greeting to Dr. Alex Smith",
+    "name": "fn_greet",
+    "parameters": {
+      "name": "Dr. Alex Smith"
+    }
+  },
+  {
+    "prompt": "Reverse the string 'openai'",
+    "name": "fn_reverse_string",
+    "parameters": {
+      "s": "openai"
+    }
+  },
+  {
+    "prompt": "Flip the string '12345' backwards",
+    "name": "fn_reverse_string",
+    "parameters": {
+      "s": "12345"
+    }
+  },
+  {
+    "prompt": "What is the square root of 81?",
+    "name": "fn_get_square_root",
+    "parameters": {
+      "a": 81.0
+    }
+  },
+  {
+    "prompt": "Calculate the square root of 2.25",
+    "name": "fn_get_square_root",
+    "parameters": {
+      "a": 2.25
+    }
+  },
+  {
+    "prompt": "Replace all digits in 'User ID 9928' with X",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "User ID 9928",
+      "regex": "\\d+",
+      "replacement": "X"
+    }
+  },
+  {
+    "prompt": "Replace all spaces in 'hello world example' with underscores",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "hello world example",
+      "regex": " ",
+      "replacement": "_"
+    }
+  }
+]
