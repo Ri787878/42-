@@ -25,14 +25,17 @@ class Pathfinder():
         path.reverse()
         return path
 
-    def pathfinder(
+    def next_step(
         self,
         network: Zone_Network,
+        current_hub: Hub,
         occupied_hubs: dict[str, int] | None = None,
-    ) -> list[Hub]:
+        used_links: dict[tuple[str, str], int] | None = None,
+    ) -> Hub | None:
         occupied_hubs = occupied_hubs or {}
+        used_links = used_links or {}
 
-        start_hub = network.start_hub
+        start_hub = current_hub
         goal_hub = network.end_hub
 
         if start_hub.is_blocked:
@@ -60,10 +63,12 @@ class Pathfinder():
             _, _, current_cost, _, current_hub = heappop(open_set)
 
             if current_hub.name == goal_hub.name:
-                return self._reconstruct_path(
+                path = self._reconstruct_path(
                     came_from,
                     network.hub_map,
                     current_hub.name)
+                
+                return path[1] if len(path) > 1 else None
 
             if current_cost > g_score.get(current_hub.name, current_cost):
                 continue
@@ -71,8 +76,33 @@ class Pathfinder():
             for neighbor in network.neighbors(current_hub.name):
                 if neighbor.is_blocked:
                     continue
-
+            
+                link_key: tuple[str, str] = (
+                    current_hub.name,
+                    neighbor.name,
+                ) if current_hub.name < neighbor.name else (
+                    neighbor.name,
+                    current_hub.name,
+                )
+            
+                link_capacity = 0
+            
+                for left, right, capacity in network.connection:
+                    if tuple(sorted((left, right))) == link_key:
+                        link_capacity = capacity
+                        break
+            
+                if link_capacity <= 0:
+                    continue
+            
+                # Only the first movement is being scheduled this turn.
+                # Do not block links later in the hypothetical A* route.
+                if current_hub.name == start_hub.name:
+                    if used_links.get(link_key, 0) >= link_capacity:
+                        continue
+            
                 congestion = occupied_hubs.get(neighbor.name, 0)
+            
                 if (
                     neighbor.max_drones is None
                     or congestion < neighbor.max_drones
@@ -82,23 +112,31 @@ class Pathfinder():
                     congestion_penalty = (
                         (congestion - neighbor.max_drones + 1) * 5
                     )
-
+            
                 tentative_cost = (
-                    current_cost +
-                    neighbor.movement_cost +
-                    congestion_penalty)
-
-                if tentative_cost >= g_score.get(neighbor.name, float("inf")):
+                    current_cost
+                    + neighbor.movement_cost
+                    + congestion_penalty
+                )
+            
+                if tentative_cost >= g_score.get(
+                    neighbor.name,
+                    float("inf"),
+                ):
                     continue
-
+            
                 came_from[neighbor.name] = current_hub.name
                 g_score[neighbor.name] = tentative_cost
-
-                priority_score = 0 if neighbor.prefered_zone else 1
-                total_score = (
-                    tentative_cost + self._heuristic(neighbor, goal_hub)
+            
+                priority_score = (
+                    0 if neighbor.prefered_zone else 1
                 )
-
+            
+                total_score = (
+                    tentative_cost
+                    + self._heuristic(neighbor, goal_hub)
+                )
+            
                 heappush(
                     open_set,
                     (
@@ -110,4 +148,4 @@ class Pathfinder():
                     ),
                 )
 
-        raise ValueError("[ERROR] No valid path was found.")
+        return None

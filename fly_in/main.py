@@ -2,8 +2,8 @@ from pydantic import ValidationError
 import sys
 import copy
 
-from pathfinder import Dispatcher
-from logs import Logger
+from pathfinder import Dispatcher, Pathfinder
+from log_handling import Logger
 from ui import Displayer, Map_Selector
 from models import Zone_Network, InvalidConfiguration
 
@@ -25,7 +25,12 @@ def main() -> None:
 
         display_drones = copy.deepcopy(drones)
 
-        history = logger.simulate_drones(network, drones)
+        pathfinder = Pathfinder()
+        history = logger.simulate_drones(
+            network,
+            drones,
+            pathfinder,
+        )
 
         displayer.start_display(network, display_drones, history)
 

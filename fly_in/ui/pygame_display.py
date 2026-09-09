@@ -244,12 +244,12 @@ class Displayer():
                     )
 
             # Draw pathways
-            for drone in drones:
+            for drone_id, route in drone_history_paths.items():
                 draw_route(
                     world_surface,
-                    drone.planned_path,
-                    ROUTE_COLOR
-                    )
+                    route,
+                    ROUTE_COLOR,
+                )
 
             # Draw Hub nodes
             for node in nodes:

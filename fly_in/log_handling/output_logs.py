@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import cast
 from models import Drone, Hub, Zone_Network
+from pathfinder.pathfinder import Pathfinder
 from variables import DroneStatus
 
 
@@ -60,147 +61,206 @@ class Logger():
     def simulate_drones(
         self,
         network: Zone_Network,
-        drones: list[Drone]
+        drones: list[Drone],
+        pathfinder: Pathfinder,
     ) -> list[str]:
         history: list[str] = []
-
+    
+        start_hub = network.start_hub
+        goal_hub = network.end_hub
+    
+        occupancy: dict[str, int] = {
+            start_hub.name: len(drones)
+        }
+    
         active = [
-            {
-                "id": i + 1,
-                "drone": d,
-                "path_index": 0
-             } for i, d in enumerate(drones)]
-        start_hub, goal_hub = network.start_hub, network.end_hub
-
-        occupancy: dict[str, int] = {start_hub.name: len(active)}
-
+            drone for drone in drones
+            if not drone.has_reached(goal_hub)
+        ]
+    
         while active:
-            # ---------- Phase 1: collect intents (no mutation) ----------
             intents: list[dict] = []
             link_usage: dict[tuple[str, str], int] = {}
             inbound_reserved: dict[str, int] = {}
+            outbound_reserved: dict[str, int] = {}
             turn_tokens: dict[int, str] = {}
-            delivered_ids: set[int] = set()
-            any_move = False
-
-            for item in sorted(active, key=lambda x: int(cast(int, x["id"]))):
-                d_id = cast(int, item["id"])
-                drone: Drone = cast(Drone, item["drone"])
-                i = cast(int, item["path_index"])
-                path = drone.planned_path
-
-                if i >= len(path) - 1:
-                    delivered_ids.add(d_id)
-                    continue
-
-                # second turn of restricted move
+    
+            for drone in sorted(active, key=lambda item: item.id):
+                current_hub = drone.current_hub
+    
+                # Complete the second turn of a restricted movement.
                 if drone.status == DroneStatus.BLOCKED:
-                    arrival = path[i + 1]
+                    if drone.pending_hub is None:
+                        raise RuntimeError(
+                            f"Drone {drone.id} has no pending destination."
+                        )
+    
                     intents.append({
-                        "id": d_id, "kind": "restricted_arrival",
-                        "from": path[i].name, "to": arrival.name,
-                        "item": item
+                        "drone": drone,
+                        "kind": "restricted_arrival",
+                        "from_hub": current_hub,
+                        "to_hub": drone.pending_hub,
                     })
                     continue
-
-                cur = path[i]
-                nxt = path[i + 1]
-
-                n1, n2 = sorted((cur.name, nxt.name))
-                link_key = (n1, n2)
-
-                cap = self._get_link_limit(network, cur.name, nxt.name)
-                if cap <= 0:
-                    continue
-                if link_usage.get(link_key, 0) >= cap:
-                    continue
-
-                # hub capacity reservation
-                if nxt.zone != "restricted" and nxt.name != goal_hub.name:
-                    nxt_occ = (
-                        occupancy.get(nxt.name, 0)
-                        + inbound_reserved.get(nxt.name, 0)
+    
+                # Let the pathfinder see reservations already made this turn.
+                pathfinder_occupancy = {
+                    name: (
+                        occupancy.get(name, 0)
+                        - outbound_reserved.get(name, 0)
+                        + inbound_reserved.get(name, 0)
                     )
-                    if not self._hub_has_capacity(nxt, nxt_occ):
-                        continue
-                    inbound_reserved[nxt.name] = inbound_reserved.get(
-                        nxt.name,
-                        0
-                    ) + 1
-
-                link_usage[link_key] = link_usage.get(link_key, 0) + 1
-                intents.append({
-                    "id": d_id, "kind": "move",
-                    "from_hub": cur, "to_hub": nxt,
-                    "item": item
-                })
-
-            # ---------- Phase 2: commit accepted intents ----------
-            for it in intents:
-                d_id = it["id"]
-
-                if it["kind"] == "restricted_arrival":
-                    item = cast(dict, it["item"])
-                    drone = cast(Drone, item["drone"])
-                    i = cast(int, item["path_index"])
-                    arrival = drone.planned_path[i + 1]
-
-                    drone.status = DroneStatus.MOVING
-                    item["path_index"] = i + 1
-                    drone.current_hub = arrival
-                    turn_tokens[d_id] = f"D{d_id}-{arrival.name}"
-                    any_move = True
-
-                    path_len = len(drone.planned_path)
-                    if cast(int, item["path_index"]) >= path_len - 1:
-                        delivered_ids.add(d_id)
-
-                elif it["kind"] == "move":
-                    item = cast(dict, it["item"])
-                    drone = cast(Drone, item["drone"])
-                    i = cast(int, item["path_index"])
-                    cur = it["from_hub"]
-                    nxt = it["to_hub"]
-
-                    occupancy[cur.name] = max(
+                    for name in (
+                        set(occupancy)
+                        | set(outbound_reserved)
+                        | set(inbound_reserved)
+                    )
+                }
+    
+                next_hub = pathfinder.next_step(
+                    network,
+                    current_hub,
+                    pathfinder_occupancy,
+                    link_usage,
+                )
+    
+                if next_hub is None:
+                    continue
+    
+                link_key: tuple[str, str] = (
+                    (current_hub.name, next_hub.name)
+                    if current_hub.name <= next_hub.name
+                    else (next_hub.name, current_hub.name)
+                )
+    
+                link_limit = self._get_link_limit(
+                    network,
+                    current_hub.name,
+                    next_hub.name,
+                )
+    
+                if link_usage.get(link_key, 0) >= link_limit:
+                    continue
+    
+                # Check destination capacity after departures and arrivals.
+                if (
+                    next_hub.zone != "restricted"
+                    and next_hub.name != goal_hub.name
+                ):
+                    current_count = occupancy.get(next_hub.name, 0)
+                    leaving_count = outbound_reserved.get(
+                        next_hub.name,
                         0,
-                        occupancy.get(cur.name, 0) - 1
                     )
-
-                    if nxt.zone == "restricted":
-                        drone.status = DroneStatus.BLOCKED
-                        turn_tokens[d_id] = f"D{d_id}-{cur.name}-{nxt.name}"
-                    else:
-                        if nxt.name != goal_hub.name:
-                            occupancy[nxt.name] = occupancy.get(
-                                nxt.name,
-                                0
-                            ) + 1
-
-                        item["path_index"] = i + 1
-                        drone.current_hub = nxt
-                        lbl = self._movement_label(network, cur, nxt)
-                        turn_tokens[d_id] = f"D{d_id}-{lbl}"
-                        idx = cast(int, item["path_index"])
-                        if idx >= len(drone.planned_path) - 1:
-                            delivered_ids.add(d_id)
-
-                    any_move = True
-
-            active = [x for x in active if x["id"] not in delivered_ids]
-
+                    entering_count = inbound_reserved.get(
+                        next_hub.name,
+                        0,
+                    )
+    
+                    effective_count = (
+                        current_count
+                        - leaving_count
+                        + entering_count
+                    )
+    
+                    if not self._hub_has_capacity(
+                        next_hub,
+                        effective_count,
+                    ):
+                        continue
+    
+                    inbound_reserved[next_hub.name] = (
+                        entering_count + 1
+                    )
+    
+                link_usage[link_key] = (
+                    link_usage.get(link_key, 0) + 1
+                )
+    
+                outbound_reserved[current_hub.name] = (
+                    outbound_reserved.get(current_hub.name, 0) + 1
+                )
+    
+                intents.append({
+                    "drone": drone,
+                    "kind": "move",
+                    "from_hub": current_hub,
+                    "to_hub": next_hub,
+                })
+    
+            # Commit all accepted movements.
+            for intent in intents:
+                intent_drone: Drone = intent["drone"]
+                intent_current_hub: Hub = intent["from_hub"]
+                intent_next_hub: Hub = intent["to_hub"]
+    
+                if intent["kind"] == "restricted_arrival":
+                    intent_drone.pending_hub = None
+                    intent_drone.move_to(intent_next_hub)
+    
+                    occupancy[intent_next_hub.name] = (
+                        occupancy.get(intent_next_hub.name, 0) + 1
+                    )
+    
+                    turn_tokens[intent_drone.id] = (
+                        f"D{intent_drone.id}-{intent_next_hub.name}"
+                    )
+                    continue
+    
+                occupancy[intent_current_hub.name] = max(
+                    0,
+                    occupancy.get(intent_current_hub.name, 0) - 1,
+                )
+    
+                if intent_next_hub.zone == "restricted":
+                    intent_drone.pending_hub = intent_next_hub
+                    intent_drone.status = DroneStatus.BLOCKED
+    
+                    turn_tokens[drone.id] = (
+                        f"D{drone.id}-"
+                        f"{intent_current_hub.name}-"
+                        f"{intent_next_hub.name}"
+                    )
+                else:
+                    intent_drone.move_to(intent_next_hub)
+    
+                    if intent_next_hub.name != goal_hub.name:
+                        occupancy[intent_next_hub.name] = (
+                            occupancy.get(intent_next_hub.name, 0) + 1
+                        )
+    
+                    label = self._movement_label(
+                        network,
+                        intent_current_hub,
+                        intent_next_hub,
+                    )
+    
+                    turn_tokens[intent_drone.id] = (
+                        f"D{intent_drone.id}-{label}"
+                    )
+    
+            active = [
+                drone for drone in active
+                if not drone.has_reached(goal_hub)
+            ]
+    
             if turn_tokens:
                 output_line = " ".join(
-                    turn_tokens[k] for k in sorted(turn_tokens)
+                    turn_tokens[drone_id]
+                    for drone_id in sorted(turn_tokens)
                 )
                 print(output_line)
                 history.append(output_line)
-
-            if active and not any_move:
+    
+            if active and not intents:
                 raise RuntimeError(
                     "Simulation stalled: no drone can progress."
                 )
-
-        with open("output.txt", "w", encoding="utf-8") as f:
-            f.write("\n".join(history) + ("\n" if history else ""))
+    
+        with open("output.txt", "w", encoding="utf-8") as file:
+            file.write(
+                "\n".join(history)
+                + ("\n" if history else "")
+            )
+    
         return history
