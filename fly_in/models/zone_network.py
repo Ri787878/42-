@@ -68,7 +68,6 @@ class Zone_Network(BaseModel):
         connections_list: list[tuple[str, str, int]] = []
         i: int = 0
         nb_drones_line: int = 0
-        start_hub_line: int = 0
         end_hub_line: int = 0
 
         # Validate it starts with nb_drones
