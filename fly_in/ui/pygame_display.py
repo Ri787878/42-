@@ -1,10 +1,12 @@
-from io import BytesIO
+
+from contextlib import redirect_stdout
+from pathlib import Path
+from io import BytesIO, StringIO
 import base64
 import json
-from pathlib import Path
 import sys
-
-import pygame
+with redirect_stdout(StringIO()):
+    import pygame
 
 from models import Drone, Hub, Zone_Network
 
@@ -54,7 +56,7 @@ class Displayer():
         drones: list[Drone],
         history: list[str]
     ) -> None:
-        pygame.init()
+        pygame.display.init()
         pygame.font.init()
 
         WIDTH, HEIGHT = 1500, 800

@@ -1,5 +1,4 @@
 from models.drones import Drone
-from pathfinder.pathfinder import Pathfinder
 from models.zone_network import Zone_Network
 
 
@@ -11,7 +10,6 @@ class Dispatcher():
         """
 
         drones: list[Drone] = []
-        pathfinder = Pathfinder()
         for drone_id in range(1, network.nb_drones + 1):
             drones.append(
                 Drone(

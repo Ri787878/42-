@@ -66,21 +66,29 @@ class Zone_Network(BaseModel):
         end_hub_str: str = ""
         hubs_str_list: list[str] = []
         connections_list: list[tuple[str, str, int]] = []
+        i: int = 0
+        nb_drones_line: int = 0
+        start_hub_line: int = 0
+        end_hub_line: int = 0
 
         # Validate it starts with nb_drones
         for line in lines:
+            i += 1
             cleaned_line = line.strip()
             if cleaned_line.startswith("#") or not cleaned_line:
                 continue
             if not cleaned_line.startswith("nb_drones:"):
                 raise InvalidConfiguration(
-                    "[ERROR] Configuration file doesn't start with"
-                    " 'nb_drones'.")
+                    f"[ERROR] [Line {i}] Configuration file doesn't start with"
+                    f" 'nb_drones'.")
             nb_drones_str = cleaned_line.removeprefix("nb_drones:").strip()
+            nb_drones_line = i
             break
 
+        i = 0
         # Extract all tokens
         for line in lines:
+            i += 1
             cleaned_line = line.strip()
             if cleaned_line.startswith("#") or not cleaned_line:
                 continue
@@ -88,13 +96,17 @@ class Zone_Network(BaseModel):
             if cleaned_line.startswith("start_hub:"):
                 if start_hub_str:
                     raise InvalidConfiguration(
-                        "[ERROR] There are 2 'start_hub' configurations.")
+                        f"[ERROR] [Line {i}] There are 2 'start_hub' "
+                        f"configurations."
+                    )
                 start_hub_str = cleaned_line.removeprefix("start_hub:").strip()
 
             elif cleaned_line.startswith("end_hub:"):
                 if end_hub_str:
                     raise InvalidConfiguration(
-                        "[ERROR] There are 2 'end_hub' configurations.")
+                        f"[ERROR] [Line {i}] There are 2 'end_hub' "
+                        f"configurations."
+                    )
                 end_hub_str = cleaned_line.removeprefix("end_hub:").strip()
 
             elif cleaned_line.startswith("hub:"):
@@ -133,14 +145,17 @@ class Zone_Network(BaseModel):
                 "[ERROR] Missing configuration parameter: 'nb_drones'")
         if not nb_drones_str.isdigit():
             raise InvalidConfiguration(
-                f"[ERROR] Invalid configuration parameter: 'nb_drones': "
-                f"'{nb_drones_str}'")
+                f"[ERROR] [{nb_drones_line}] Invalid configuration "
+                f"parameter: 'nb_drones': '{nb_drones_str}'"
+            )
         if not start_hub_str:
             raise InvalidConfiguration(
                 "[ERROR] Missing configuration parameter: 'start_hub'")
         if not end_hub_str:
             raise InvalidConfiguration(
-                "[ERROR] Missing configuration parameter: 'end_hub'")
+                f"[ERROR] [{end_hub_line}] Missing configuration"
+                f" parameter: 'end_hub'"
+            )
 
         # Helper function to convert "name,x,y,[meta1,meta2]"
         # strings into real Hub objects
