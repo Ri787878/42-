@@ -294,7 +294,9 @@ class Displayer():
                     y = curr_hub.y_coord + dy * progress
 
                 screen_pos = world_to_screen(x, y)
-                offset = index * 4
+                # Offset for drone visual representation
+                # offset = index * 4
+                offset = 0
                 screen_pos = (screen_pos[0] + offset, screen_pos[1] + offset)
                 draw_drone(world_surface, screen_pos, drone_sprite)
 
